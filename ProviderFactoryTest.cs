@@ -2,6 +2,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using AppVisum.Sys.EventTypes;
+using System.Linq;
 
 namespace AppVisum.Sys.Tests
 {
@@ -79,6 +80,40 @@ namespace AppVisum.Sys.Tests
         public override string Name
         {
             get { return "Provider 1"; }
+        }
+    }
+
+    class Provider6 : ProviderBase, IProvider2
+    {
+        private ProviderFactory pf;
+
+        public Provider6(ProviderFactory pf)
+        {
+            this.pf = pf;
+        }
+
+        public void DoSomething() { }
+
+        public override string Name
+        {
+            get { return "Provider 6"; }
+        }
+
+        public override bool CanUse
+        {
+            get { try { return pf.Instance<IProvider1>().GetType() == typeof(Provider1); } catch { return false; } }
+        }
+    }
+
+    class Provider7 : ProviderBase, IProvider2
+    {
+        public Provider7() { }
+
+        public void DoSomething() { }
+
+        public override string Name
+        {
+            get { return "Provider 7"; }
         }
     }
 
@@ -443,9 +478,11 @@ namespace AppVisum.Sys.Tests
         public void ProviderFactory_Register_Succeeds_OnValidProviderAndInstance()
         {
             providerFactory.RegisterType(typeof(IProvider1));
+            providerFactory.RegisterType(typeof(IProvider2));
             providerFactory.Register(typeof(Provider1));
             providerFactory.Register(typeof(Provider2), new Provider2("tester"));
             providerFactory.Register(typeof(Provider3));
+            providerFactory.Register(typeof(Provider6));
         }
 
         #endregion
@@ -506,6 +543,26 @@ namespace AppVisum.Sys.Tests
         #region ProviderFactory.Instance<T>()
 
         [TestMethod]
+        public void ProviderFactory_Instance_ThrowsException_OnSelectedProviderUnusable()
+        {
+            try
+            {
+                providerFactory.RegisterType(typeof(IProvider1));
+                providerFactory.RegisterType(typeof(IProvider2));
+                providerFactory.Register(typeof(Provider3));
+                providerFactory.Register(typeof(Provider6));
+                providerFactory.SetCurrent<IProvider1>("Provider 3");
+                providerFactory.SetCurrent<IProvider2>("Provider 6");
+                IProvider2 provider = providerFactory.Instance<IProvider2>();
+                Assert.Fail("Did not throw exception.");
+            }
+            catch (Exception e)
+            {
+                Assert.IsTrue(e.Message.Contains("Provided provider can't be used"));
+            }
+        }
+
+        [TestMethod]
         public void ProviderFactory_Instance_ThrowsArgumentException_OnUnregisteredType()
         {
             try
@@ -535,7 +592,7 @@ namespace AppVisum.Sys.Tests
             }
             catch (Exception e)
             {
-                Assert.IsTrue(e.Message.Contains("No providers found for that type"));
+                Assert.IsTrue(e.Message.Contains("No providers that can be used was found for that type"));
             }
         }
 
@@ -563,7 +620,7 @@ namespace AppVisum.Sys.Tests
 
         #endregion
 
-        #region ProviderFactory.SetType<T> -> ProviderFactory.Instance<T>
+        #region ProviderFactory.SetCurrent<T> -> ProviderFactory.Instance<T>
 
         [TestMethod]
         public void ProviderFactory_Instance_ReturnsTypeSetBy_SetCurrent()
@@ -645,6 +702,39 @@ namespace AppVisum.Sys.Tests
             Assert.IsInstanceOfType(providerFactory.Instance<IProvider1>(), typeof(Provider1));
             providerFactory.SetCurrent<IProvider1>("Provider 2");
             Assert.IsInstanceOfType(providerFactory.Instance<IProvider1>(), typeof(Provider2));
+        }
+
+        #endregion
+
+        #region ProviderFactory.GetRegisteredProviderTypes
+
+        [TestMethod]
+        public void ProviderFactory_GetRegisteredProviderTypes()
+        {
+            providerFactory.RegisterType(typeof(IProvider1));
+            providerFactory.RegisterType(typeof(IProvider2));
+
+            ProviderType[] types = providerFactory.GetRegisteredProviderTypes();
+
+            Assert.AreEqual(2, types.Length);
+        }
+
+        #endregion
+
+        #region ProviderFactory.GetRegisteredProviders<T>
+
+        [TestMethod]
+        public void ProviderFactory_GetRegisteredProviders()
+        {
+            providerFactory.RegisterType(typeof(IProvider2));
+            providerFactory.Register(typeof(Provider6));
+            providerFactory.Register(typeof(Provider7));
+
+            Provider[] usable = providerFactory.GetRegisteredProviders<IProvider2>();
+            Provider[] all = providerFactory.GetRegisteredProviders<IProvider2>(false);
+
+            Assert.AreEqual(1, usable.Length);
+            Assert.AreEqual(2, all.Length);
         }
 
         #endregion
